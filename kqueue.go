@@ -97,10 +97,16 @@ func (w *Watcher) Close() error {
 
 // Add starts watching the named file or directory (non-recursively).
 func (w *Watcher) Add(name string) error {
+	return w.AddWithFlags(name, noteAllEvents)
+}
+
+// AddWithFlags starts watching the named file or directory (non-recursively).
+// The path is only watched according to the system-dependent flags passed in.
+func (w *Watcher) AddWithFlags(name string, flags uint32) error {
 	w.mu.Lock()
 	w.externalWatches[name] = true
 	w.mu.Unlock()
-	_, err := w.addWatch(name, noteAllEvents)
+	_, err := w.addWatch(name, flags)
 	return err
 }
 

@@ -91,16 +91,19 @@ func (w *Watcher) Close() error {
 
 // Add starts watching the named file or directory (non-recursively).
 func (w *Watcher) Add(name string) error {
+	const agnosticEvents = unix.IN_MOVED_TO | unix.IN_MOVED_FROM |
+		unix.IN_CREATE | unix.IN_ATTRIB | unix.IN_MODIFY |
+		unix.IN_MOVE_SELF | unix.IN_DELETE | unix.IN_DELETE_SELF
+	return w.AddWithFlags(name, agnosticEvents)
+}
+
+// AddWithFlags starts watching the named file or directory (non-recursively).
+// The path is only watched according to the system-dependent flags passed in.
+func (w *Watcher) AddWithFlags(name string, flags uint32) error {
 	name = filepath.Clean(name)
 	if w.isClosed() {
 		return errors.New("inotify instance already closed")
 	}
-
-	const agnosticEvents = unix.IN_MOVED_TO | unix.IN_MOVED_FROM |
-		unix.IN_CREATE | unix.IN_ATTRIB | unix.IN_MODIFY |
-		unix.IN_MOVE_SELF | unix.IN_DELETE | unix.IN_DELETE_SELF
-
-	var flags uint32 = agnosticEvents
 
 	w.mu.Lock()
 	defer w.mu.Unlock()

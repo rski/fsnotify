@@ -31,6 +31,12 @@ func (w *Watcher) Add(name string) error {
 	return nil
 }
 
+// AddWithFlags starts watching the named file or directory (non-recursively).
+// The path is only watched according to the system-dependent flags passed in.
+func (w *Watcher) AddWithFlags(name string, flags uint32) error {
+	return nil
+}
+
 // Remove stops watching the the named file or directory (non-recursively).
 func (w *Watcher) Remove(name string) error {
 	return nil

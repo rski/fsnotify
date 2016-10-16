@@ -65,13 +65,19 @@ func (w *Watcher) Close() error {
 
 // Add starts watching the named file or directory (non-recursively).
 func (w *Watcher) Add(name string) error {
+	return w.AddWithFlags(sysFSALLEVENTS)
+}
+
+// AddWithFlags starts watching the named file or directory (non-recursively).
+// The path is only watched according to the system-dependent flags passed in.
+func (w *Watcher) AddWithFlags(name string, flags uint32) error {
 	if w.isClosed {
 		return errors.New("watcher already closed")
 	}
 	in := &input{
 		op:    opAddWatch,
 		path:  filepath.Clean(name),
-		flags: sysFSALLEVENTS,
+		flags: flags,
 		reply: make(chan error),
 	}
 	w.input <- in
