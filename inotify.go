@@ -24,7 +24,6 @@ type Watcher struct {
 	Events   chan Event
 	Errors   chan error
 	mu       sync.Mutex // Map access
-	cv       *sync.Cond // sync removing on rm_watch with IN_IGNORE
 	fd       int
 	poller   *fdPoller
 	watches  map[string]*watch // Map of inotify watches (key: path)
@@ -56,7 +55,6 @@ func NewWatcher() (*Watcher, error) {
 		done:     make(chan struct{}),
 		doneResp: make(chan struct{}),
 	}
-	w.cv = sync.NewCond(&w.mu)
 
 	go w.readEvents()
 	return w, nil
@@ -150,13 +148,6 @@ func (w *Watcher) Remove(name string) error {
 		// Watch descriptors are invalidated when they are removed explicitly or implicitly;
 		// explicitly by inotify_rm_watch, implicitly when the file they are watching is deleted.
 		return errno
-	}
-
-	// wait until ignoreLinux() deleting maps
-	exists := true
-	for exists {
-		w.cv.Wait()
-		_, exists = w.watches[name]
 	}
 
 	return nil
@@ -283,11 +274,10 @@ func (e *Event) ignoreLinux(w *Watcher, wd int32, mask uint32) bool {
 	// Ignore anything the inotify API says to ignore
 	if mask&unix.IN_IGNORED == unix.IN_IGNORED {
 		w.mu.Lock()
-		defer w.mu.Unlock()
 		name := w.paths[int(wd)]
 		delete(w.paths, int(wd))
 		delete(w.watches, name)
-		w.cv.Broadcast()
+		w.mu.Unlock()
 		return true
 	}
 
