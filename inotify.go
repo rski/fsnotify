@@ -105,18 +105,23 @@ func (w *Watcher) AddWithFlags(name string, flags uint32) error {
 
 	w.mu.Lock()
 	defer w.mu.Unlock()
-	watchEntry, found := w.watches[name]
-	if found {
-		watchEntry.flags |= flags
-		flags |= unix.IN_MASK_ADD
+	watchEntry := w.watches[name]
+	if watchEntry != nil {
+		flags |= watchEntry.flags | unix.IN_MASK_ADD
 	}
 	wd, errno := unix.InotifyAddWatch(w.fd, name, flags)
 	if wd == -1 {
 		return errno
 	}
 
-	w.watches[name] = &watch{wd: uint32(wd), flags: flags}
-	w.paths[wd] = name
+	if watchEntry == nil {
+		w.watches[name] = &watch{wd: uint32(wd), flags: flags}
+		w.paths[wd] = name
+	} else {
+		watchEntry.wd = uint32(wd)
+		watchEntry.flags = flags
+	}
+
 	return nil
 }
 
@@ -133,6 +138,13 @@ func (w *Watcher) Remove(name string) error {
 	if !ok {
 		return fmt.Errorf("can't remove non-existent inotify watch for: %s", name)
 	}
+
+	// We successfully removed the watch if InotifyRmWatch doesn't return an
+	// error, we need to clean up our internal state to ensure it matches
+	// inotify's kernel state.
+	delete(w.paths, int(watch.wd))
+	delete(w.watches, name)
+
 	// inotify_rm_watch will return EINVAL if the file has been deleted;
 	// the inotify will already have been removed.
 	// watches and pathes are deleted in ignoreLinux() implicitly and asynchronously
@@ -250,8 +262,17 @@ func (w *Watcher) readEvents() {
 			// the "Name" field with a valid filename. We retrieve the path of the watch from
 			// the "paths" map.
 			w.mu.Lock()
-			name := w.paths[int(raw.Wd)]
+			name, ok := w.paths[int(raw.Wd)]
+			// IN_DELETE_SELF occurs when the file/directory being watched is removed.
+			// This is a sign to clean up the maps, otherwise we are no longer in sync
+			// with the inotify kernel state which has already deleted the watch
+			// automatically.
+			if ok && mask&unix.IN_DELETE_SELF == unix.IN_DELETE_SELF {
+				delete(w.paths, int(raw.Wd))
+				delete(w.watches, name)
+			}
 			w.mu.Unlock()
+
 			if nameLen > 0 {
 				// Point "bytes" at the first byte of the filename
 				bytes := (*[unix.PathMax]byte)(unsafe.Pointer(&buf[offset+unix.SizeofInotifyEvent]))
@@ -262,7 +283,7 @@ func (w *Watcher) readEvents() {
 			event := newEvent(name, mask)
 
 			// Send the events that are not ignored on the events channel
-			if !event.ignoreLinux(w, raw.Wd, mask) {
+			if !event.ignoreLinux(mask) {
 				select {
 				case w.Events <- event:
 				case <-w.done:
@@ -279,14 +300,9 @@ func (w *Watcher) readEvents() {
 // Certain types of events can be "ignored" and not sent over the Events
 // channel. Such as events marked ignore by the kernel, or MODIFY events
 // against files that do not exist.
-func (e *Event) ignoreLinux(w *Watcher, wd int32, mask uint32) bool {
+func (e *Event) ignoreLinux(mask uint32) bool {
 	// Ignore anything the inotify API says to ignore
 	if mask&unix.IN_IGNORED == unix.IN_IGNORED {
-		w.mu.Lock()
-		name := w.paths[int(wd)]
-		delete(w.paths, int(wd))
-		delete(w.watches, name)
-		w.mu.Unlock()
 		return true
 	}
 
