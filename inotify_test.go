@@ -295,7 +295,7 @@ func TestInotifyRemoveTwice(t *testing.T) {
 
 	err = w.Remove(testFile)
 	if err != nil {
-		t.Fatalf("wanted successful remove but got:", err)
+		t.Fatalf("wanted successful remove but got: %s", err)
 	}
 
 	err = w.Remove(testFile)
@@ -445,5 +445,29 @@ func TestInotifyOverflow(t *testing.T) {
 	if overflows == 0 {
 		t.Fatalf("No overflow and not enough creates (expected %d, got %d)",
 			numDirs*numFiles, creates)
+	}
+}
+
+func TestMaximumFds(t *testing.T) {
+	defer SetMaxWatcherLimit(0)
+
+	SetMaxWatcherLimit(2)
+	w, err := NewWatcher()
+	if w == nil || err != nil {
+		t.Fatalf("got no watcher or error: %#v, err: %v", w, err)
+	}
+	w, err = NewWatcher()
+	if w == nil || err != nil {
+		t.Fatalf("got no watcher or error: %#v, err: %v", w, err)
+	}
+	w, err = NewWatcher()
+	if w != nil {
+		t.Fatal("should not have received a watcher")
+	}
+	if err == nil {
+		t.Fatalf("expected an error, got %v", err)
+	}
+	if err.Error() != "2 watchers already allocated" {
+		t.Fatalf("unexpected error %v", err)
 	}
 }

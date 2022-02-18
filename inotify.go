@@ -19,6 +19,27 @@ import (
 	"golang.org/x/sys/unix"
 )
 
+type allocLimits struct {
+	sync.Mutex
+	max       uint32
+	allocated uint32
+}
+
+var limits = &allocLimits{}
+
+// SetMaxWatcherLimit sets the maximum fds that a process can allocate through this package.
+// The Linux kernel provides only per-user, not per process inotify fd limits,
+// so misbehaving processes can cause other processes to run out of inotify fds.
+func SetMaxWatcherLimit(v uint32) error {
+	limits.Lock()
+	defer limits.Unlock()
+	if limits.max != 0 && limits.allocated > limits.max {
+		return fmt.Errorf("asked to limit fds to %d, but %d have already been created", limits.max, limits.allocated)
+	}
+	limits.max = v
+	return nil
+}
+
 // Watcher watches a set of files, delivering events to a channel.
 type Watcher struct {
 	Events   chan Event
@@ -34,6 +55,14 @@ type Watcher struct {
 
 // NewWatcher establishes a new watcher with the underlying OS and begins waiting for events.
 func NewWatcher() (*Watcher, error) {
+	limits.Lock()
+	defer limits.Unlock()
+	if limits.max != 0 {
+		if limits.allocated >= limits.max {
+			return nil, fmt.Errorf("%d watchers already allocated", limits.allocated)
+		}
+	}
+
 	// Create inotify fd
 	fd, errno := unix.InotifyInit1(unix.IN_CLOEXEC)
 	if fd == -1 {
@@ -45,6 +74,7 @@ func NewWatcher() (*Watcher, error) {
 		unix.Close(fd)
 		return nil, err
 	}
+	limits.allocated++
 	w := &Watcher{
 		fd:       fd,
 		poller:   poller,
@@ -74,6 +104,11 @@ func (w *Watcher) Close() error {
 	if w.isClosed() {
 		return nil
 	}
+	limits.Lock()
+	if limits.max != 0 {
+		limits.allocated--
+	}
+	limits.Unlock()
 
 	// Send 'close' signal to goroutine, and set the Watcher to closed.
 	close(w.done)
