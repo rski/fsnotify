@@ -40,6 +40,8 @@ type pathInfo struct {
 	isDir bool
 }
 
+func SetMaxWatcherLimit(v uint32) error { return nil }
+
 // NewWatcher establishes a new watcher with the underlying OS and begins waiting for events.
 func NewWatcher() (*Watcher, error) {
 	kq, err := kqueue()
