@@ -105,9 +105,7 @@ func (w *Watcher) Close() error {
 		return nil
 	}
 	limits.Lock()
-	if limits.max != 0 {
-		limits.allocated--
-	}
+	limits.allocated--
 	limits.Unlock()
 
 	// Send 'close' signal to goroutine, and set the Watcher to closed.
